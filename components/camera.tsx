@@ -437,4 +437,3 @@ function getVideoFilterClass(filter: FilterType): string {
       return ""
   }
 }
-
