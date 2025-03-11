@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { CameraIcon, Loader2 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
+import { Button } from "@/components/ui/button"
 
 interface CameraProps {
   onCapture: (photoData: string) => void
@@ -17,6 +18,7 @@ interface CameraProps {
   cameraActive: boolean
   soundEnabled: boolean
   isRetaking: boolean
+  manualCapture?: boolean
 }
 
 export function Camera({
@@ -28,6 +30,7 @@ export function Camera({
   cameraActive,
   soundEnabled,
   isRetaking,
+  manualCapture = false,
 }: CameraProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -37,6 +40,7 @@ export function Camera({
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [isProcessing, setIsProcessing] = useState<boolean>(false)
   const { toast } = useToast()
+  const [isReady, setIsReady] = useState(true)
 
   // Initialize camera
   useEffect(() => {
@@ -83,56 +87,55 @@ export function Camera({
     }
   }, [cameraActive, toast])
 
-  // Handle photo sequence
+  // Add capture cooldown
+  const captureWithCooldown = useCallback(async () => {
+    if (!isReady || !videoRef.current || !canvasRef.current) return
+
+    setIsReady(false)
+    await capturePhoto()
+    
+    // Add cooldown between captures
+    setTimeout(() => {
+      setIsReady(true)
+    }, 1500) // 1.5 second cooldown
+  }, [isReady])
+
+  // Improved photo capture sequence
   useEffect(() => {
     if (!isCapturing || !cameraActive) return
 
-    // Reset for a new sequence if we already have 4 photos and not retaking
-    if (photoCount >= 4 && !isRetaking) {
-      return
+    let timeoutId: NodeJS.Timeout
+
+    const captureSequence = async () => {
+      if (photoCount >= 4 && !isRetaking) {
+        setIsCapturing(false)
+        return
+      }
+
+      setCountdown(3)
+
+      // Countdown timer
+      for (let i = 3; i > 0; i--) {
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        setCountdown(i - 1)
+      }
+
+      await captureWithCooldown()
+
+      // Continue sequence if not in manual mode
+      if (!manualCapture && photoCount < 3) {
+        timeoutId = setTimeout(captureSequence, 2000)
+      } else {
+        setIsCapturing(false)
+      }
     }
 
-    let timer: NodeJS.Timeout
-    const currentPhoto = photoCount
-    const totalPhotos = 4
-    const photosRemaining = isRetaking ? 1 : totalPhotos - currentPhoto
-
-    if (photosRemaining <= 0) {
-      setIsCapturing(false)
-      return
-    }
-
-    // Start countdown
-    setCountdown(3)
-    setProgress(0)
-
-    const countdownInterval = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev === null || prev <= 1) {
-          clearInterval(countdownInterval)
-          // Take photo when countdown reaches 0
-          capturePhoto()
-          return null
-        }
-
-        // Play countdown sound
-        if (soundEnabled) {
-          const beepSound = new Audio("/beep.mp3")
-          beepSound.volume = 0.3
-          beepSound.play().catch((e) => console.log("Audio play failed:", e))
-        }
-
-        return prev - 1
-      })
-
-      setProgress((prev) => prev + 33.3)
-    }, 1000)
+    captureSequence()
 
     return () => {
-      clearInterval(countdownInterval)
-      clearTimeout(timer)
+      clearTimeout(timeoutId)
     }
-  }, [isCapturing, photoCount, onCapture, setIsCapturing, cameraActive, soundEnabled, isRetaking])
+  }, [isCapturing, photoCount, cameraActive, manualCapture, isRetaking])
 
   // Keyboard shortcut for capturing
   useEffect(() => {
@@ -148,7 +151,9 @@ export function Camera({
   }, [isCapturing, setIsCapturing, cameraActive])
 
   const capturePhoto = useCallback(() => {
-    if (!videoRef.current || !canvasRef.current || !cameraActive) return
+    if (!isReady || !videoRef.current || !canvasRef.current || !cameraActive) return
+
+    setIsReady(false) // Prevent multiple captures
 
     const video = videoRef.current
     const canvas = canvasRef.current
@@ -156,59 +161,50 @@ export function Camera({
 
     if (!context) return
 
-    // Set canvas dimensions to match video
+    // Set canvas dimensions to match video aspect ratio
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
 
-    // Draw the video frame to the canvas
+    // Draw the video frame
     context.drawImage(video, 0, 0, canvas.width, canvas.height)
 
-    // Apply selected filter
+    // Apply filter
     applyFilter(context, canvas, filter)
 
     // Show processing animation
     setIsProcessing(true)
 
-    // Get the data URL and pass it to the parent component
+    // Capture sound and flash effect
+    if (soundEnabled) {
+      const captureSound = new Audio("/camera-shutter.mp3")
+      captureSound.play().catch(console.error)
+    }
+
+    // Flash effect
+    const flashElement = document.createElement("div")
+    flashElement.className = "fixed inset-0 bg-white opacity-80 z-50"
+    document.body.appendChild(flashElement)
+
     setTimeout(() => {
-      const photoData = canvas.toDataURL("image/jpeg")
+      document.body.removeChild(flashElement)
+      setIsProcessing(false)
 
-      // Play capture sound
-      if (soundEnabled) {
-        const captureSound = new Audio("/camera-shutter.mp3")
-        captureSound.play().catch((e) => console.log("Audio play failed:", e))
-      }
+      const photoData = canvas.toDataURL("image/jpeg", 1.0)
+      onCapture(photoData)
 
-      // Flash effect
-      const flashElement = document.createElement("div")
-      flashElement.className = "fixed inset-0 bg-white opacity-80 z-50"
-      document.body.appendChild(flashElement)
-
+      // Reset ready state after a delay
       setTimeout(() => {
-        document.body.removeChild(flashElement)
-        setIsProcessing(false)
-        onCapture(photoData)
+        setIsReady(true)
+      }, 1000) // 1-second cooldown between captures
+    }, 150)
+  }, [cameraActive, filter, onCapture, soundEnabled])
 
-        // Continue with next photo if we haven't taken 4 yet and not retaking
-        const newPhotoCount = photoCount + 1
-        if (newPhotoCount < 4 && !isRetaking) {
-          setTimeout(() => {
-            setCountdown(3)
-            setProgress(0)
-          }, 500)
-        } else {
-          setIsCapturing(false)
-
-          if (!isRetaking) {
-            toast({
-              title: "Photo strip complete!",
-              description: "All 4 photos captured. View your photo strip!",
-            })
-          }
-        }
-      }, 150)
-    }, 500)
-  }, [cameraActive, filter, onCapture, photoCount, setIsCapturing, soundEnabled, toast, isRetaking])
+  // Handle manual capture
+  const handleManualCapture = () => {
+    if (!isCapturing && manualCapture) {
+      capturePhoto()
+    }
+  }
 
   const applyFilter = (context: CanvasRenderingContext2D, canvas: HTMLCanvasElement, filter: FilterType) => {
     const width = canvas.width
@@ -411,6 +407,16 @@ export function Camera({
 
       {/* Hidden canvas for capturing photos */}
       <canvas ref={canvasRef} className="hidden" />
+
+      {manualCapture && (
+        <Button
+          onClick={handleManualCapture}
+          disabled={!isReady || isProcessing}
+          className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-white/90 hover:bg-white"
+        >
+          <CameraIcon className="h-6 w-6" />
+        </Button>
+      )}
     </div>
   )
 }

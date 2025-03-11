@@ -1,14 +1,14 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { Download, RefreshCw, Pencil } from "lucide-react"
+import { Download, RefreshCw, Pencil, Loader2 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 interface PhotoStripProps {
   photos: string[]
-  onDownload: () => void
+  onDownload: (template: string) => void
   onReset: () => void
   onRetake: (index: number) => void
 }
@@ -17,6 +17,7 @@ export function PhotoStrip({ photos, onDownload, onReset, onRetake }: PhotoStrip
   const containerRef = useRef<HTMLDivElement>(null)
   const [selectedTemplate, setSelectedTemplate] = useState<string>("classic")
   const [isRendering, setIsRendering] = useState<boolean>(false)
+  const [isDownloading, setIsDownloading] = useState<boolean>(false)
 
   const templates = [
     { id: "classic", name: "Classic" },
@@ -122,6 +123,10 @@ export function PhotoStrip({ photos, onDownload, onReset, onRetake }: PhotoStrip
     }
   }
 
+  const handleDownload = () => {
+    onDownload(selectedTemplate)
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -131,9 +136,18 @@ export function PhotoStrip({ photos, onDownload, onReset, onRetake }: PhotoStrip
             <RefreshCw className="mr-2 h-4 w-4" />
             New Strip
           </Button>
-          <Button onClick={onDownload} size="sm" disabled={photos.length < 4}>
-            <Download className="mr-2 h-4 w-4" />
-            Download
+          <Button onClick={handleDownload} disabled={photos.length < 4 || isDownloading}>
+            {isDownloading ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Downloading...
+              </>
+            ) : (
+              <>
+                <Download className="h-4 w-4 mr-2" />
+                Download Strip
+              </>
+            )}
           </Button>
         </div>
       </div>
