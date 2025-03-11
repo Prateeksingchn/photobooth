@@ -1,6 +1,12 @@
 import type { Metadata } from 'next'
 import { ThemeProvider } from '@/components/theme-provider'
 import './globals.css'
+import { Permanent_Marker } from "next/font/google";
+
+const marker = Permanent_Marker({
+  weight: '400',
+  subsets: ['latin'],
+});
 
 export const metadata: Metadata = {
   title: 'Next.js Photobooth - Create Amazing Photos',
